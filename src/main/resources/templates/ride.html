@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <title th:text="${tipo} + ' ' + ${numero}">RIDE</title>
+  <style>
+    @page { size: A4; margin: 12mm; }
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 8.5pt; color: #111; }
+    .caja { border: 1px solid #444; border-radius: 4px; padding: 6px 8px; }
+    .cabecera { width: 100%; border-collapse: separate; border-spacing: 0; }
+    .cabecera td { vertical-align: top; width: 50%; }
+    .izq { padding-right: 5px; }
+    .der { padding-left: 5px; }
+    .logo { max-width: 220px; max-height: 90px; margin-bottom: 6px; }
+    .rs { font-size: 11pt; font-weight: bold; margin: 2px 0 6px; }
+    .tipo { font-size: 13pt; font-weight: bold; margin: 2px 0; }
+    .etq { font-weight: bold; }
+    p { margin: 2px 0; }
+    .mono { font-family: Courier, monospace; font-size: 7.5pt; word-wrap: break-word; }
+    .codigos img { display: block; }
+    .clave { font-size: 6.8pt; white-space: nowrap; }
+    .barras { width: 100%; height: 38px; margin-top: 4px; }
+    .qr { width: 70px; height: 70px; }
+    table.datos { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    table.datos th, table.datos td { border: 1px solid #444; padding: 3px 4px; }
+    table.datos th { background: #e8e8e8; font-size: 7.5pt; }
+    .num { text-align: right; white-space: nowrap; }
+    .pie { width: 100%; border-collapse: separate; margin-top: 8px; }
+    .pie > tbody > tr > td { vertical-align: top; }
+    .total td { font-weight: bold; }
+    .anulado { position: fixed; top: 300px; left: 60px; font-size: 80pt; color: rgba(200, 0, 0, 0.25); transform: rotate(-30deg); }
+  </style>
+</head>
+<body>
+<div class="anulado" th:if="${anulado}">ANULADO</div>
+
+<table class="cabecera">
+  <tr>
+    <td class="izq">
+      <img class="logo" th:if="${logo}" th:src="${logo}" alt="logo"/>
+      <div class="caja">
+        <p class="rs" th:text="${razonSocial}">Razón social</p>
+        <p th:if="${nombreComercial}" th:text="${nombreComercial}"></p>
+        <p><span class="etq">Dirección matriz: </span><span th:text="${dirMatriz}"></span></p>
+        <p th:if="${dirEstablecimiento}"><span class="etq">Dirección sucursal: </span><span th:text="${dirEstablecimiento}"></span></p>
+        <p th:if="${contribuyenteEspecial}"><span class="etq">Contribuyente especial Nro.: </span><span th:text="${contribuyenteEspecial}"></span></p>
+        <p th:if="${obligadoContabilidad}"><span class="etq">Obligado a llevar contabilidad: </span><span th:text="${obligadoContabilidad}"></span></p>
+        <p th:if="${agenteRetencion}"><span class="etq">Agente de retención Resolución Nro.: </span><span th:text="${agenteRetencion}"></span></p>
+        <p th:if="${contribuyenteRimpe}" th:text="${contribuyenteRimpe}"></p>
+      </div>
+    </td>
+    <td class="der">
+      <div class="caja">
+        <p><span class="etq">R.U.C.: </span><span th:text="${ruc}"></span></p>
+        <p class="tipo" th:text="${tipo}">FACTURA</p>
+        <p><span class="etq">No. </span><span th:text="${numero}"></span></p>
+        <p class="etq">NÚMERO DE AUTORIZACIÓN</p>
+        <p class="mono" th:text="${numeroAutorizacion}"></p>
+        <p th:if="${fechaAutorizacion}"><span class="etq">Fecha y hora de autorización: </span><span th:text="${fechaAutorizacion}"></span></p>
+        <p><span class="etq">Ambiente: </span><span th:text="${ambiente}"></span></p>
+        <p><span class="etq">Emisión: </span>NORMAL</p>
+        <p class="etq">CLAVE DE ACCESO</p>
+        <table style="width: 100%" class="codigos">
+          <tr>
+            <td><img class="barras" th:src="${barras}" alt="código de barras"/></td>
+            <td style="width: 74px"><img class="qr" th:src="${qr}" alt="QR"/></td>
+          </tr>
+        </table>
+        <p class="mono clave" th:text="${claveAcceso}"></p>
+      </div>
+    </td>
+  </tr>
+</table>
+
+<div class="caja" style="margin-top: 8px">
+  <p th:each="p : ${receptor}"><span class="etq" th:text="${p.nombre} + ': '"></span><span th:text="${p.valor}"></span></p>
+</div>
+
+<table class="datos">
+  <thead>
+    <tr><th th:each="c : ${tabla.columnas}" th:text="${c}"></th></tr>
+  </thead>
+  <tbody>
+    <tr th:each="f : ${tabla.filas}">
+      <td th:each="v : ${f}" th:text="${v}"></td>
+    </tr>
+  </tbody>
+</table>
+
+<table class="pie">
+  <tr>
+    <td style="width: 58%; padding-right: 6px">
+      <div class="caja" th:if="${!adicional.isEmpty()}">
+        <p class="etq">Información adicional</p>
+        <p th:each="a : ${adicional}"><span class="etq" th:text="${a.nombre} + ': '"></span><span th:text="${a.valor}"></span></p>
+      </div>
+      <table class="datos" th:if="${pagos != null and !pagos.isEmpty()}">
+        <thead><tr><th>Forma de pago</th><th>Valor</th></tr></thead>
+        <tbody><tr th:each="p : ${pagos}"><td th:text="${p.nombre}"></td><td class="num" th:text="${p.valor}"></td></tr></tbody>
+      </table>
+    </td>
+    <td>
+      <table class="datos" style="margin-top: 0" th:if="${!totales.isEmpty()}">
+        <tr th:each="t, i : ${totales}" th:classappend="${i.last} ? 'total' : ''">
+          <td th:text="${t.nombre}"></td><td class="num" th:text="${t.valor}"></td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>
