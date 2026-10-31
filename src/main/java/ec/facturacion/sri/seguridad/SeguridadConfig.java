@@ -5,6 +5,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
+import org.springframework.security.authorization.AuthorizationDecision;
+import java.security.MessageDigest;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -27,6 +30,25 @@ import java.nio.charset.StandardCharsets;
 @Configuration
 @EnableMethodSecurity
 public class SeguridadConfig {
+
+    /**
+     * /prometheus va en su propia cadena: se autoriza con "Authorization: Bearer METRICS_TOKEN" (no es un JWT).
+     * Sin METRICS_TOKEN queda cerrado.
+     */
+    @Bean
+    @Order(1)
+    SecurityFilterChain metricas(HttpSecurity http, @Value("${app.metrics-token:}") String token) throws Exception {
+        byte[] esperado = ("Bearer " + token).getBytes(StandardCharsets.UTF_8);
+        return http.securityMatcher("/prometheus")
+                .csrf(c -> c.disable())
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(a -> a.anyRequest().access((auth, ctx) -> {
+                    String h = ctx.getRequest().getHeader("Authorization");
+                    return new AuthorizationDecision(!token.isBlank() && h != null
+                            && MessageDigest.isEqual(esperado, h.getBytes(StandardCharsets.UTF_8)));
+                }))
+                .build();
+    }
 
     @Bean
     SecurityFilterChain filtros(HttpSecurity http) throws Exception {

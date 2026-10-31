@@ -15,6 +15,10 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import ec.facturacion.sri.correos.Correos;
+import ec.facturacion.sri.monitoreo.MonitorSri;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import ec.facturacion.sri.webhooks.Webhooks;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -51,14 +55,21 @@ public class EmisionService {
     private final Auditoria auditoria;
     private final String ambiente;
     private final Webhooks webhooks;
+    private final Correos correos;
+    private final MonitorSri monitor;
+    private final MeterRegistry registry;
     private final TransactionTemplate tx;
     // Clave: emisorId:huella del certificado, así un cambio de .p12 invalida la caché en todas las réplicas.
     private final Map<String, Firmador> firmadores = new ConcurrentHashMap<>();
 
     public EmisionService(JdbcClient db, JsonMapper json, Cifrado cifrado, SriClient sri, Auditoria auditoria,
-                          @Value("${app.sri-ambiente}") String ambiente, Webhooks webhooks, TransactionTemplate tx) {
+                          @Value("${app.sri-ambiente}") String ambiente, Webhooks webhooks, Correos correos, MonitorSri monitor, MeterRegistry registry,
+                          TransactionTemplate tx) {
+        this.monitor = monitor;
+        this.registry = registry;
         this.ambiente = ambiente;
         this.webhooks = webhooks;
+        this.correos = correos;
         this.tx = tx;
         this.db = db;
         this.json = json;
@@ -128,6 +139,7 @@ public class EmisionService {
                         r.subtotal(), r.iva(), r.total(), r.identificacion(), r.razonSocial())
                 .query(Long.class).single();
         auditoria.registrar(s, "COMPROBANTE_EMITIDO", Map.of("claveAcceso", clave));
+        registry.counter("sri.comprobantes.emitidos", "codDoc", tipo.codDoc()).increment();
         return id;
     }
 
@@ -156,7 +168,7 @@ public class EmisionService {
         try {
             boolean recienEnviado = false;
             if (t.estado().equals("PENDIENTE")) {
-                var r = sri.enviar(t.xmlFirmado().getBytes(StandardCharsets.UTF_8));
+                var r = medir("recepcion", () -> sri.enviar(t.xmlFirmado().getBytes(StandardCharsets.UTF_8)));
                 // 43 = clave ya registrada, 70 = en procesamiento: el SRI ya lo tiene, solo falta autorizar.
                 boolean recibido = "RECIBIDA".equals(r.estado())
                         || r.mensajes().stream().anyMatch(m -> Set.of("43", "70").contains(m.get("identificador")));
@@ -170,7 +182,7 @@ public class EmisionService {
             SriClient.Autorizacion a = null;
             for (int i = 0; i < 3 && a == null; i++) {
                 if (recienEnviado || i > 0) Thread.sleep(1000L * (i + 1));
-                a = sri.consultar(t.claveAcceso());
+                a = medir("autorizacion", () -> sri.consultar(t.claveAcceso()));
             }
             if (a == null) reprogramar(t, null);
             else terminar(id, "AUTORIZADO".equals(a.estado()) ? "AUTORIZADO" : "NO_AUTORIZADO", a.mensajes(), a);
@@ -180,7 +192,23 @@ public class EmisionService {
         }
     }
 
+    /** Mide la llamada al SRI (Prometheus) y le avisa al monitor si respondió o no. */
+    private <T> T medir(String operacion, java.util.concurrent.Callable<T> llamada) throws Exception {
+        Timer.Sample muestra = Timer.start(registry);
+        try {
+            T r = llamada.call();
+            muestra.stop(registry.timer("sri.llamadas", "operacion", operacion, "resultado", "ok"));
+            monitor.exito();
+            return r;
+        } catch (Exception e) {
+            muestra.stop(registry.timer("sri.llamadas", "operacion", operacion, "resultado", "error"));
+            monitor.fallo(e.toString());
+            throw e;
+        }
+    }
+
     private void terminar(long id, String estado, List<Map<String, String>> mensajes, SriClient.Autorizacion a) {
+        registry.counter("sri.comprobantes.finalizados", "estado", estado).increment();
         OffsetDateTime fecha = null;
         try {
             if (a != null && a.fechaAutorizacion() != null) fecha = OffsetDateTime.parse(a.fechaAutorizacion());
@@ -199,8 +227,10 @@ public class EmisionService {
                             a == null ? null : a.numeroAutorizacion(), f, id)
                     .update();
             webhooks.encolar(id);
+            if (estado.equals("AUTORIZADO")) correos.encolarAutomatico(id);
         });
         webhooks.despacharPronto();
+        correos.despacharPronto();
     }
 
     private void reprogramar(Trabajo t, String error) {
