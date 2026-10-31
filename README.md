@@ -39,6 +39,7 @@ Documentación interactiva (Swagger): `http://localhost:8080/api`. Haz login en 
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | — / `587` | Email del RIDE y XML a los clientes. Sin `SMTP_HOST` queda desactivado. Usa STARTTLS (`SMTP_STARTTLS=false` solo en pruebas) |
 | `ALERTAS_EMAIL` | — | A quién avisar si el SRI cae o hay comprobantes atascados (varios separados por coma) |
 | `METRICS_TOKEN` | — | Token para leer `/prometheus`; sin él las métricas quedan cerradas |
+| `WEBHOOKS_PERMITIR_HTTP`, `WEBHOOKS_PERMITIR_RED_PRIVADA` | `false` | **Solo pruebas locales**: permiten webhooks por http y hacia localhost/red interna |
 | `SWAGGER_ENABLED` | `true` | Swagger UI en `/api`; en producción conviene `false` |
 | `PORT` | `8080` | Puerto HTTP |
 
@@ -54,14 +55,20 @@ Documentación interactiva (Swagger): `http://localhost:8080/api`. Haz login en 
 |---|---|---|---|
 | POST | `/auth/login` | público | `accessToken` (15 min) + `refreshToken` (30 días) |
 | POST | `/auth/refresh` | público | Rota el refresh token (cada uno sirve una vez; reusarlo revoca la sesión) |
-| POST | `/auth/logout` | público | Revoca el refresh token |
+| POST | `/auth/logout` | público | Revoca el refresh token (cuerpo o cookie) y borra la cookie |
 | POST | `/auth/register` | SUPERADMIN, ADMIN | Crear usuario (ADMIN solo en su tenant) |
-| PATCH | `/auth/change-password` | todos | Cambia la clave y cierra todas las sesiones |
+| PATCH | `/auth/change-password` | todos | Cambia la clave y cierra todas las sesiones (400 si la clave actual es incorrecta) |
+| GET | `/usuarios` | SUPERADMIN, ADMIN | Listar (ADMIN: su tenant; SUPERADMIN: todos o `?tenantId=`) |
+| PATCH | `/usuarios/{id}` | SUPERADMIN, ADMIN | `{"activo", "rol"}`: desactivar cierra sus sesiones |
+| POST | `/usuarios/{id}/clave` | SUPERADMIN, ADMIN | Clave temporal `{"nueva"}`; cierra sus sesiones |
 | POST/GET | `/tenants` | SUPERADMIN | Empresas clientes |
+| PATCH | `/tenants/{id}` | SUPERADMIN | `{"nombre", "activo"}`: desactivado no puede iniciar sesión |
 | POST/GET | `/emisores`, `/emisores/{id}` | ADMIN crea, todos leen | RUCs del tenant |
+| PATCH | `/emisores/{id}` | ADMIN | Cambios parciales (el RUC no cambia); `""` borra un campo opcional; `activo: false` deja de emitir |
 | PUT/GET | `/emisores/{id}/certificado` | ADMIN sube, todos leen | .p12 (se guarda cifrado) y su vigencia |
 | PUT | `/emisores/{id}/logo` | ADMIN | Logo del RIDE (multipart `archivo`, PNG/JPEG ≤ 300 KB) |
-| POST/GET | `/emisores/{id}/puntos-emision` | ADMIN crea, todos leen | Establecimiento + punto de emisión |
+| POST/GET | `/emisores/{id}/puntos-emision` | ADMIN crea, todos leen | Establecimiento + punto de emisión (con `ultimosSecuenciales` por tipo) |
+| PATCH | `/emisores/{id}/puntos-emision/{puntoId}` | ADMIN | `{"dirEstablecimiento", "activo"}` |
 | POST | `/sri/factura/emitir` | ADMIN, USER | Factura (JSON simple, calcula totales) |
 | POST | `/sri/nota-credito/emitir` | ADMIN, USER | Nota de crédito |
 | POST | `/sri/nota-debito/emitir` | ADMIN, USER | Nota de débito |
@@ -81,6 +88,8 @@ Documentación interactiva (Swagger): `http://localhost:8080/api`. Haz login en 
 | POST | `/sri/sincronizar` | ADMIN, USER | Procesa ya todos los pendientes del tenant |
 | GET | `/catalogos`, `/catalogos/{nombre}` | todos | `impuestos`, `retenciones-iva`, `retenciones-renta`, `formas-pago`, `tipos-identificacion`, `documentos-sustento`, `motivos-traslado`, `tipos-comprobante` |
 | POST/GET | `/webhooks` | ADMIN | Registrar URL (`{"url", "eventos"?}`); el `secreto` se muestra solo al crear |
+| PATCH | `/webhooks/{id}` | ADMIN | `{"activo", "url", "eventos"}`: pausado acumula y entrega al reanudar |
+| POST | `/webhooks/{id}/rotar-secreto` | ADMIN | Nuevo secreto (se muestra una sola vez; el anterior deja de valer) |
 | DELETE | `/webhooks/{id}` | ADMIN | Eliminar |
 | GET | `/webhooks/logs` | ADMIN | Historial de entregas: `estado`, `claveAcceso`, `pagina`, `tamano` |
 | POST | `/webhooks/logs/{id}/reenviar` | ADMIN | Reintentar una entrega |
@@ -91,7 +100,16 @@ Documentación interactiva (Swagger): `http://localhost:8080/api`. Haz login en 
 | GET | `/prometheus` | `Bearer METRICS_TOKEN` | Métricas para Prometheus/Grafana |
 | GET | `/status` | público | Health check (DB y disco) |
 
-Todos los `POST .../emitir` y `/sri/comprobantes` aceptan el header `Idempotency-Key`.
+Todos los `POST .../emitir` y `/sri/comprobantes` aceptan el header `Idempotency-Key`. Las respuestas incluyen `subtotal`, `iva`, `total`, `receptorIdentificacion`, `receptorRazonSocial` e `idempotencyKey`.
+
+**Errores**: formato Problem Details (RFC 9457). Si falla una validación, `errores` dice el campo:
+
+```json
+{"status": 400, "detail": "Datos inválidos: ruc: RUC inválido (13 dígitos terminados en 001)",
+ "errores": [{"campo": "ruc", "mensaje": "RUC inválido (13 dígitos terminados en 001)"}]}
+```
+
+**Navegadores**: con la cabecera `X-Token-Cookie: true` en `/auth/login`, el refresh token no viene en el cuerpo sino en una cookie `HttpOnly; Secure; SameSite=Strict; Path=/auth`. Luego `/auth/refresh` y `/auth/logout` se llaman sin cuerpo y el navegador envía la cookie. El JavaScript nunca ve el refresh token. Los sistemas servidor a servidor siguen usando el cuerpo.
 
 ### Ejemplo: `POST /sri/factura/emitir`
 
@@ -149,11 +167,13 @@ X-SRI-Entrega: 42                       ← único por entrega: úsalo para igno
 X-SRI-Timestamp: 1793480400
 X-SRI-Firma: sha256=<hex de HMAC-SHA256(secreto, timestamp + "." + cuerpo)>
 
-{"evento":"comprobante.autorizado","claveAcceso":"...","estado":"AUTORIZADO","numeroAutorizacion":"...", ...}
+{"evento":"comprobante.autorizado","claveAcceso":"...","estado":"AUTORIZADO","numeroAutorizacion":"...",
+ "idempotencyKey":"venta-42","subtotal":100.00,"iva":15.00,"total":115.00, ...}
 ```
 
 - Responde 2xx para confirmar. Si no, se reintenta con esperas crecientes (hasta 10 veces, ~8 horas) y luego queda `FALLIDO` (reenviable).
-- El evento se guarda en la misma transacción que el cambio de estado: nunca se pierde.
+- El evento se guarda en la misma transacción que el cambio de estado: nunca se pierde (tampoco si el webhook está pausado).
+- `idempotencyKey` es la que enviaste al emitir: sirve para asociar el aviso a tu venta aunque llegue antes que la respuesta de la emisión.
 - Solo URLs `https` a direcciones públicas (bloquea localhost, redes internas y metadata de la nube) y sin seguir redirecciones.
 
 Verificar la firma en Go:
