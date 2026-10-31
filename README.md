@@ -36,6 +36,9 @@ Documentación interactiva (Swagger): `http://localhost:8080/api`. Haz login en 
 | `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` | — | Crea el superadmin la primera vez (no hay credenciales por defecto) |
 | `DB_URL` / `DB_USER` / `DB_PASSWORD` | `jdbc:postgresql://localhost:5432/sri`, `sri`, `sri` | Base de datos |
 | `SRI_AMBIENTE` | `1` | `1` = pruebas (celcer), `2` = producción (cel) |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | — / `587` | Email del RIDE y XML a los clientes. Sin `SMTP_HOST` queda desactivado. Usa STARTTLS (`SMTP_STARTTLS=false` solo en pruebas) |
+| `ALERTAS_EMAIL` | — | A quién avisar si el SRI cae o hay comprobantes atascados (varios separados por coma) |
+| `METRICS_TOKEN` | — | Token para leer `/prometheus`; sin él las métricas quedan cerradas |
 | `SWAGGER_ENABLED` | `true` | Swagger UI en `/api`; en producción conviene `false` |
 | `PORT` | `8080` | Puerto HTTP |
 
@@ -70,6 +73,8 @@ Documentación interactiva (Swagger): `http://localhost:8080/api`. Haz login en 
 | GET | `/sri/comprobantes/{clave}` | ADMIN, USER | Detalle |
 | GET | `/sri/comprobantes/{clave}/xml` | ADMIN, USER | XML autorizado (o firmado si aún no se autoriza) |
 | GET | `/sri/comprobantes/{clave}/ride` | ADMIN, USER | RIDE en PDF con código de barras y QR (autorizados; los anulados con marca de agua) |
+| POST | `/sri/comprobantes/{clave}/email` | ADMIN, USER | Envía o reenvía RIDE + XML (`{"destinatarios": [...]}` opcional) |
+| GET | `/sri/comprobantes/{clave}/emails` | ADMIN, USER | Historial de envíos por email |
 | GET | `/sri/verificar/{clave}` | ADMIN, USER | Consulta al SRI ya mismo |
 | POST | `/sri/comprobantes/{clave}/reintentar` | ADMIN, USER | Reintenta uno en `ERROR` |
 | PATCH | `/sri/comprobantes/{clave}/anular` | ADMIN | Marca ANULADO un AUTORIZADO (`{"motivo": ...}`). **También hay que anularlo en SRI en línea** |
@@ -81,6 +86,9 @@ Documentación interactiva (Swagger): `http://localhost:8080/api`. Haz login en 
 | POST | `/webhooks/logs/{id}/reenviar` | ADMIN | Reintentar una entrega |
 | GET | `/reportes/resumen` | ADMIN, USER | `desde`, `hasta` (aaaa-mm-dd, máx. 1 año), `ruc`: cantidades y montos por tipo/estado y ventas netas |
 | GET | `/reportes/comprobantes.csv` | ADMIN, USER | Mismo rango + `codDoc`, `estado`, `ruc`: listado para Excel |
+| GET | `/reportes/ats` | ADMIN | ATS del mes en XML para DIMM: `ruc`, `anio`, `mes` |
+| GET | `/reportes/ats/resumen` | ADMIN | Compras incluidas, total de ventas y **advertencias** a revisar antes de presentar |
+| GET | `/prometheus` | `Bearer METRICS_TOKEN` | Métricas para Prometheus/Grafana |
 | GET | `/status` | público | Health check (DB y disco) |
 
 Todos los `POST .../emitir` y `/sri/comprobantes` aceptan el header `Idempotency-Key`.
@@ -167,6 +175,43 @@ La plantilla es HTML editable: [`src/main/resources/templates/ride.html`](src/ma
 - **Resumen** (`/reportes/resumen`): por tipo y estado, cantidad, subtotal, IVA y total. `ventasNetas` = facturas + notas de débito − notas de crédito (solo autorizadas), útil para la declaración de IVA; `retencionesEmitidas` = total retenido.
 - **CSV** (`/reportes/comprobantes.csv`): fecha, tipo, número, clave, estado, autorización, receptor y montos. UTF-8 con BOM (Excel muestra bien las tildes), se transmite fila por fila y neutraliza fórmulas (`=`, `+`, `-`, `@`) para que un nombre malicioso no se ejecute al abrirlo en Excel.
 
+## Email al cliente
+
+Cuando un comprobante queda **AUTORIZADO** y su `infoAdicional` tiene un campo "Email" o "Correo" (los endpoints simplificados lo ponen desde `comprador.email`), se envía al cliente el RIDE (PDF) y el XML autorizado, a nombre de la razón social del emisor. Si el SMTP falla, se reintenta solo (hasta 8 veces, ~8 horas). Se guarda en la misma transacción que la autorización, igual que los webhooks.
+
+## Alertas y métricas
+
+- **Alertas por email** a `ALERTAS_EMAIL`: cuando fallan 5 llamadas seguidas al SRI ("SRI no responde"), cuando vuelve ("SRI recuperado") y, como máximo una vez por hora, si hay comprobantes pendientes por más de 30 minutos o que pasaron a ERROR.
+- **Prometheus** en `/prometheus` (cabecera `Authorization: Bearer <METRICS_TOKEN>`):
+
+| Métrica | Qué mide |
+|---|---|
+| `sri_disponible` | 1 si el SRI responde, 0 si está caído |
+| `sri_llamadas_seconds` | Tiempo de cada llamada al SRI por `operacion` (recepcion/autorizacion) y `resultado` (ok/error) |
+| `sri_comprobantes_emitidos_total`, `sri_comprobantes_finalizados_total` | Comprobantes emitidos (por `codDoc`) y finalizados (por `estado`) |
+| `sri_comprobantes_pendientes`, `sri_comprobantes_pendiente_antiguedad_segundos`, `sri_comprobantes_error` | Cola con el SRI |
+| `sri_webhooks_pendientes`, `sri_correos_pendientes` | Colas de notificaciones |
+
+Regla de alerta sugerida para Prometheus:
+
+```yaml
+- alert: SriCaido
+  expr: sri_disponible == 0
+  for: 5m
+- alert: ComprobantesAtascados
+  expr: sri_comprobantes_pendiente_antiguedad_segundos > 1800
+```
+
+## ATS (Anexo Transaccional Simplificado)
+
+`GET /reportes/ats?ruc=...&anio=2026&mes=10` genera el XML del mes para importar en **DIMM Formularios**:
+
+- **Compras**: cada documento sustento de las **retenciones emitidas** (bases por tarifa, IVA, retenciones de IVA y renta) y las **liquidaciones de compra**.
+- **Ventas**: los comprobantes electrónicos no van en el detalle de ventas; se informan los totales por establecimiento (facturas + notas de débito − notas de crédito autorizadas).
+- **Anulados**: los electrónicos se anulan en SRI en línea y no se repiten.
+
+> ⚠️ **Revísalo con tu contador antes de presentarlo.** No conseguí el XSD oficial del ATS, así que la estructura sigue la ficha técnica pero solo DIMM la valida de verdad. Además, las facturas de proveedores **sin** retención no pasan por este servicio y hay que agregarlas aparte. `GET /reportes/ats/resumen` lista las advertencias (sustento tributario asumido, autorizaciones faltantes, anulados del mes).
+
 ## Seguridad
 
 - Certificados .p12 y sus claves cifrados con AES-256-GCM en la base; la firma se hace en memoria.
@@ -178,7 +223,7 @@ La plantilla es HTML editable: [`src/main/resources/templates/ride.html`](src/ma
 
 ## Pruebas
 
-`mvn test` (requiere Docker): firma XAdES-BES válida, clave de acceso, XML de factura, nota de crédito y retención validados contra los **XSD oficiales del SRI** (`src/test/resources/xsd`), cálculos de totales, anulación, sincronización, RIDE de los 6 tipos (texto extraído del PDF), reportes (resumen y CSV con fórmulas neutralizadas), Swagger, webhooks (firma verificada con un receptor real, reintentos, reenvío, anti-SSRF), y el flujo completo contra un Postgres real con el SRI simulado: roles, aislamiento entre tenants, rotación de tokens, idempotencia, SRI caído, rechazo y 20 emisiones concurrentes sin secuenciales repetidos.
+`mvn test` (requiere Docker): firma XAdES-BES válida, clave de acceso, XML de factura, nota de crédito y retención validados contra los **XSD oficiales del SRI** (`src/test/resources/xsd`), cálculos de totales, anulación, sincronización, RIDE de los 6 tipos (texto extraído del PDF), reportes (resumen y CSV con fórmulas neutralizadas), Swagger, webhooks (firma verificada con un receptor real, reintentos, reenvío, anti-SSRF), email con adjuntos, alertas cuando el SRI cae y se recupera, métricas protegidas, ATS (compras, retenciones y ventas por establecimiento), y el flujo completo contra un Postgres real con el SRI simulado: roles, aislamiento entre tenants, rotación de tokens, idempotencia, SRI caído, rechazo y 20 emisiones concurrentes sin secuenciales repetidos.
 
 ## Limitaciones conocidas
 
@@ -188,6 +233,5 @@ La plantilla es HTML editable: [`src/main/resources/templates/ride.html`](src/ma
 
 ## Ideas para más adelante
 
-- Envío del RIDE y XML por email al cliente.
-- Métricas Prometheus (protegidas) y alertas si el SRI deja de responder.
-- ATS (anexo transaccional simplificado) a partir de los comprobantes guardados.
+- Registrar compras recibidas (facturas de proveedores) para que el ATS salga completo.
+- SMTP por tenant (hoy es uno para todo el servicio).
