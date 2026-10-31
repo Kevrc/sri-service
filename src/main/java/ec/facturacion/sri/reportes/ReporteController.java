@@ -33,10 +33,32 @@ public class ReporteController {
 
     private final JdbcClient db;
     private final DataSource ds;
+    private final Ats ats;
 
-    public ReporteController(JdbcClient db, DataSource ds) {
+    public ReporteController(JdbcClient db, DataSource ds, Ats ats) {
         this.db = db;
         this.ds = ds;
+        this.ats = ats;
+    }
+
+    /** ATS del mes en XML, para importar en DIMM Formularios. Revisa antes las advertencias de /reportes/ats/resumen. */
+    @GetMapping(value = "/ats", produces = "application/xml")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<String> ats(@AuthenticationPrincipal Jwt jwt, @RequestParam String ruc,
+                                      @RequestParam int anio, @RequestParam int mes) throws Exception {
+        var r = ats.generar(Sesion.de(jwt).tenant(), ruc, anio, mes);
+        return ResponseEntity.ok()
+                .header("Content-Disposition", "attachment; filename=\"AT" + String.format("%02d", mes) + anio + ".xml\"")
+                .header("X-ATS-Advertencias", String.valueOf(r.advertencias().size()))
+                .body(r.xml());
+    }
+
+    @GetMapping("/ats/resumen")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Map<String, Object> atsResumen(@AuthenticationPrincipal Jwt jwt, @RequestParam String ruc,
+                                          @RequestParam int anio, @RequestParam int mes) throws Exception {
+        var r = ats.generar(Sesion.de(jwt).tenant(), ruc, anio, mes);
+        return Map.of("compras", r.compras(), "totalVentas", r.totalVentas(), "advertencias", r.advertencias());
     }
 
     private static void validarRango(LocalDate desde, LocalDate hasta) {
