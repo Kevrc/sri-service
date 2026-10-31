@@ -37,6 +37,8 @@ public class ComprobanteController {
             select c.clave_acceso as "claveAcceso", c.cod_doc as "codDoc", c.secuencial, c.estado,
                    c.fecha_emision::text as "fechaEmision", e.ruc, p.estab as "establecimiento", p.pto_emi as "puntoEmision",
                    c.numero_autorizacion as "numeroAutorizacion", c.fecha_autorizacion as "fechaAutorizacion",
+                   c.receptor_identificacion as "receptorIdentificacion", c.receptor_razon_social as "receptorRazonSocial",
+                   c.subtotal, c.iva, c.importe_total as "total", c.idempotency_key as "idempotencyKey",
                    c.mensajes::text as mensajes, c.intentos, c.creado_en as "creadoEn", c.actualizado_en as "actualizadoEn"
             from comprobante c join emisor e on e.id = c.emisor_id join punto_emision p on p.id = c.punto_emision_id
             """;
