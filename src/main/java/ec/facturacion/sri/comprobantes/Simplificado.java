@@ -140,9 +140,9 @@ public class Simplificado {
         return db.sql("""
                         select p.dir_establecimiento, e.contribuyente_especial, e.obligado_contabilidad
                         from emisor e join punto_emision p on p.emisor_id = e.id
-                        where e.tenant_id = ? and e.ruc = ? and p.estab = ? and p.pto_emi = ? and p.activo""")
+                        where e.tenant_id = ? and e.ruc = ? and p.estab = ? and p.pto_emi = ? and p.activo and e.activo""")
                 .params(tenant, ruc, estab, pto).query(DatosEmisor.class).optional()
-                .orElseThrow(() -> new IllegalArgumentException("Emisor o punto de emisión no registrado: " + ruc + " " + estab + "-" + pto));
+                .orElseThrow(() -> new IllegalArgumentException("Emisor o punto de emisión no registrado o inactivo: " + ruc + " " + estab + "-" + pto));
     }
 
     /** Cabecera común: fechaEmision, dirEstablecimiento y, según el tipo, contribuyenteEspecial/obligadoContabilidad. */

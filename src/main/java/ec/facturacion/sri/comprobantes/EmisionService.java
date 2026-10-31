@@ -100,9 +100,9 @@ public class EmisionService {
                         select e.id, e.ruc, e.razon_social, e.nombre_comercial, e.dir_matriz, e.agente_retencion,
                                e.contribuyente_rimpe, e.cert_huella, e.cert_expira, p.id as punto_id
                         from emisor e join punto_emision p on p.emisor_id = e.id
-                        where e.tenant_id = ? and e.ruc = ? and p.estab = ? and p.pto_emi = ? and p.activo""")
+                        where e.tenant_id = ? and e.ruc = ? and p.estab = ? and p.pto_emi = ? and p.activo and e.activo""")
                 .params(tenant, req.ruc(), req.establecimiento(), req.puntoEmision()).query(Emisor.class).optional()
-                .orElseThrow(() -> new IllegalArgumentException("Emisor o punto de emisión no registrado: " + req.ruc() + " " + req.establecimiento() + "-" + req.puntoEmision()));
+                .orElseThrow(() -> new IllegalArgumentException("Emisor o punto de emisión no registrado o inactivo: " + req.ruc() + " " + req.establecimiento() + "-" + req.puntoEmision()));
         if (e.certHuella() == null) throw new IllegalArgumentException("El emisor no tiene certificado cargado");
         if (e.certExpira().isBefore(OffsetDateTime.now())) throw new IllegalArgumentException("El certificado del emisor está caducado");
 

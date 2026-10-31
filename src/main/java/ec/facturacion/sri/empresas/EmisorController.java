@@ -7,6 +7,8 @@ import ec.facturacion.sri.sri.Firmador;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -34,8 +36,10 @@ public class EmisorController {
     private final JdbcClient db;
     private final Cifrado cifrado;
     private final Auditoria auditoria;
+    private final JsonMapper json;
 
-    public EmisorController(JdbcClient db, Cifrado cifrado, Auditoria auditoria) {
+    public EmisorController(JdbcClient db, Cifrado cifrado, Auditoria auditoria, JsonMapper json) {
+        this.json = json;
         this.db = db;
         this.cifrado = cifrado;
         this.auditoria = auditoria;
@@ -52,7 +56,7 @@ public class EmisorController {
             id, ruc, razon_social as "razonSocial", nombre_comercial as "nombreComercial", dir_matriz as "dirMatriz",
             obligado_contabilidad as "obligadoContabilidad", contribuyente_especial as "contribuyenteEspecial",
             agente_retencion as "agenteRetencion", contribuyente_rimpe as "contribuyenteRimpe",
-            cert_sujeto as "certSujeto", cert_expira as "certExpira\"""";
+            cert_sujeto as "certSujeto", cert_expira as "certExpira", activo""";
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
@@ -167,6 +171,52 @@ public class EmisorController {
                                coalesce(jsonb_object_agg(s.cod_doc, s.ultimo) filter (where s.cod_doc is not null), '{}')::text as "ultimosSecuenciales"
                         from punto_emision p left join secuencial s on s.punto_emision_id = p.id
                         where p.emisor_id = ? group by p.id order by p.estab, p.pto_emi""")
-                .param(id).query().listOfRows();
+                .param(id).query().listOfRows().stream().map(r -> {
+                    var m = new LinkedHashMap<>(r);
+                    m.put("ultimosSecuenciales", json.readTree((String) r.get("ultimosSecuenciales")));
+                    return (Map<String, Object>) m;
+                }).toList();
+    }
+
+    /** Cambios parciales: lo que no viene se mantiene; "" borra un campo opcional. El RUC no se cambia. */
+    public record CambioEmisor(@Size(min = 1, max = 300) String razonSocial, String nombreComercial,
+                               @Size(min = 1, max = 300) String dirMatriz, Boolean obligadoContabilidad,
+                               String contribuyenteEspecial, String agenteRetencion, String contribuyenteRimpe, Boolean activo) {}
+
+    @PatchMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Map<String, Object> modificar(@AuthenticationPrincipal Jwt jwt, @PathVariable long id, @Valid @RequestBody CambioEmisor e) {
+        Sesion s = Sesion.de(jwt);
+        obtener(jwt, id);
+        db.sql("""
+                        update emisor set razon_social = coalesce(?, razon_social),
+                               nombre_comercial = nullif(coalesce(?, nombre_comercial), ''),
+                               dir_matriz = coalesce(?, dir_matriz),
+                               obligado_contabilidad = coalesce(?, obligado_contabilidad),
+                               contribuyente_especial = nullif(coalesce(?, contribuyente_especial), ''),
+                               agente_retencion = nullif(coalesce(?, agente_retencion), ''),
+                               contribuyente_rimpe = nullif(coalesce(?, contribuyente_rimpe), ''),
+                               activo = coalesce(?, activo)
+                        where id = ? and tenant_id = ?""")
+                .params(e.razonSocial(), e.nombreComercial(), e.dirMatriz(), e.obligadoContabilidad(), e.contribuyenteEspecial(),
+                        e.agenteRetencion(), e.contribuyenteRimpe(), e.activo(), id, s.tenant())
+                .update();
+        auditoria.registrar(s, "EMISOR_MODIFICADO", Map.of("emisorId", id));
+        return obtener(jwt, id);
+    }
+
+    public record CambioPunto(@Size(min = 1, max = 300) String dirEstablecimiento, Boolean activo) {}
+
+    /** Un punto desactivado deja de emitir; sus secuenciales se conservan por si se reactiva. */
+    @PatchMapping("/{id}/puntos-emision/{puntoId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Map<String, Object> modificarPunto(@AuthenticationPrincipal Jwt jwt, @PathVariable long id, @PathVariable long puntoId,
+                                              @Valid @RequestBody CambioPunto p) {
+        obtener(jwt, id);
+        int n = db.sql("update punto_emision set dir_establecimiento = coalesce(?, dir_establecimiento), activo = coalesce(?, activo) where id = ? and emisor_id = ?")
+                .params(p.dirEstablecimiento(), p.activo(), puntoId, id).update();
+        if (n == 0) throw new NoSuchElementException("Punto de emisión no encontrado");
+        auditoria.registrar(Sesion.de(jwt), "PUNTO_EMISION_MODIFICADO", Map.of("emisorId", id, "puntoId", puntoId));
+        return puntos(jwt, id).stream().filter(x -> ((Number) x.get("id")).longValue() == puntoId).findFirst().orElseThrow();
     }
 }
