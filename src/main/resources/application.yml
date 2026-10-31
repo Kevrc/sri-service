@@ -1,0 +1,45 @@
+spring:
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/sri}
+    username: ${DB_USER:sri}
+    password: ${DB_PASSWORD:sri}
+  servlet:
+    multipart:
+      max-file-size: 1MB
+  mvc:
+    problemdetails:
+      enabled: true
+
+app:
+  sri-ambiente: ${SRI_AMBIENTE:1}
+  jwt-secret: ${JWT_SECRET}
+  encryption-key: ${ENCRYPTION_KEY}
+  superadmin-email: ${SUPERADMIN_EMAIL:}
+  superadmin-password: ${SUPERADMIN_PASSWORD:}
+
+springdoc:
+  api-docs:
+    path: /api-docs
+    enabled: ${SWAGGER_ENABLED:true}
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:true}
+    path: /api
+    persist-authorization: true
+    operations-sorter: alpha
+    tags-sorter: alpha
+
+server:
+  port: ${PORT:8080}
+
+# Health check en /status (DB y disco), sin exponer detalles internos.
+management:
+  endpoints:
+    web:
+      base-path: /
+      path-mapping:
+        health: status
+      exposure:
+        include: health

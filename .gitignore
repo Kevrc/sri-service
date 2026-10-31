@@ -1,0 +1,6 @@
+target/
+data/
+.env
+*.p12
+!src/test/resources/prueba.p12
+.DS_Store
