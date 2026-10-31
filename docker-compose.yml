@@ -1,0 +1,42 @@
+# Desarrollo: `docker compose up -d db` (solo Postgres) y la app con mvn/java.
+# Servidor:   `cp .env.example .env`, completar y `docker compose up -d --build`.
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sri
+      POSTGRES_USER: sri
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-sri}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sri -d sri"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/sri
+      DB_USER: sri
+      DB_PASSWORD: ${DB_PASSWORD:-sri}
+      JWT_SECRET: ${JWT_SECRET:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:-}
+      SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:-}
+      SRI_AMBIENTE: ${SRI_AMBIENTE:-1}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
+    # Solo en localhost: publícalo a internet detrás de un proxy con HTTPS (Nginx, Caddy, Traefik).
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+
+volumes:
+  pgdata:
