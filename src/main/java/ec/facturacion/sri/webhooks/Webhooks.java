@@ -63,9 +63,10 @@ public class Webhooks {
                                jsonb_build_object('evento', 'comprobante.' || lower(c.estado), 'claveAcceso', c.clave_acceso,
                                    'estado', c.estado, 'codDoc', c.cod_doc, 'secuencial', c.secuencial, 'ruc', e.ruc,
                                    'numeroAutorizacion', c.numero_autorizacion, 'fechaAutorizacion', c.fecha_autorizacion,
-                                   'mensajes', c.mensajes, 'fecha', now())
+                                   'mensajes', c.mensajes, 'idempotencyKey', c.idempotency_key,
+                                   'subtotal', c.subtotal, 'iva', c.iva, 'total', c.importe_total, 'fecha', now())
                         from comprobante c join emisor e on e.id = c.emisor_id
-                        join webhook w on w.tenant_id = c.tenant_id and w.activo
+                        join webhook w on w.tenant_id = c.tenant_id -- también pausados: se entregan al reanudarlos
                         where c.id = ? and ('comprobante.' || lower(c.estado)) = any (w.eventos)""")
                 .param(comprobanteId).update();
     }
@@ -84,6 +85,7 @@ public class Webhooks {
             List<Entrega> lote = db.sql("""
                             with lote as (
                                 select id from webhook_entrega where estado = 'PENDIENTE' and proximo_intento <= now()
+                                  and webhook_id in (select id from webhook where activo) -- pausado: espera a que se reactive
                                 order by proximo_intento limit 50 for update skip locked)
                             update webhook_entrega we set proximo_intento = now() + interval '2 minutes'
                             from lote, webhook w where we.id = lote.id and w.id = we.webhook_id

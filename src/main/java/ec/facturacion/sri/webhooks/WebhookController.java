@@ -55,9 +55,7 @@ public class WebhookController {
         long cuantos = db.sql("select count(*) from webhook where tenant_id = ?").param(s.tenant()).query(Long.class).single();
         if (cuantos >= 10) throw new ResponseStatusException(HttpStatus.CONFLICT, "Máximo 10 webhooks por tenant");
 
-        byte[] b = new byte[32];
-        RANDOM.nextBytes(b);
-        String secreto = "whsec_" + Base64.getUrlEncoder().withoutPadding().encodeToString(b);
+        String secreto = nuevoSecreto();
         long id = db.sql("insert into webhook (tenant_id, url, secreto, eventos) values (?, ?, ?, ?) returning id")
                 .params(s.tenant(), req.url(), cifrado.cifrar(secreto.getBytes(StandardCharsets.UTF_8)), eventos.toArray(String[]::new))
                 .query(Long.class).single();
@@ -73,6 +71,44 @@ public class WebhookController {
                     m.put("eventos", List.of(((String) r.get("eventos")).split(",")));
                     return (Map<String, Object>) m;
                 }).toList();
+    }
+
+    public record Cambio(@Size(max = 2000) String url, List<String> eventos, Boolean activo) {}
+
+    /** Pausar (activo=false), reanudar, o cambiar URL/eventos. Lo pendiente de un webhook pausado se entrega al reanudarlo. */
+    @PatchMapping("/{id}")
+    public Map<String, Object> modificar(@AuthenticationPrincipal Jwt jwt, @PathVariable long id, @Valid @RequestBody Cambio req) {
+        Sesion s = Sesion.de(jwt);
+        if (req.url() != null) webhooks.validarUrl(req.url());
+        if (req.eventos() != null) {
+            if (req.eventos().isEmpty()) throw new IllegalArgumentException("eventos no puede quedar vacío");
+            for (String e : req.eventos())
+                if (!Webhooks.EVENTOS.contains(e)) throw new IllegalArgumentException("Evento inválido: " + e + ". Válidos: " + Webhooks.EVENTOS);
+        }
+        int n = db.sql("update webhook set url = coalesce(?, url), eventos = coalesce(?, eventos), activo = coalesce(?, activo) where id = ? and tenant_id = ?")
+                .params(req.url(), req.eventos() == null ? null : req.eventos().toArray(String[]::new), req.activo(), id, s.tenant()).update();
+        if (n == 0) throw new NoSuchElementException("Webhook no encontrado");
+        auditoria.registrar(s, "WEBHOOK_MODIFICADO", Map.of("webhookId", id, "activo", String.valueOf(req.activo())));
+        if (Boolean.TRUE.equals(req.activo())) webhooks.despacharPronto();
+        return listar(jwt).stream().filter(w -> ((Number) w.get("id")).longValue() == id).findFirst().orElseThrow();
+    }
+
+    /** Nuevo secreto (por ejemplo, si el anterior se filtró). Se muestra solo en esta respuesta; el anterior deja de valer. */
+    @PostMapping("/{id}/rotar-secreto")
+    public Map<String, Object> rotarSecreto(@AuthenticationPrincipal Jwt jwt, @PathVariable long id) {
+        Sesion s = Sesion.de(jwt);
+        String secreto = nuevoSecreto();
+        int n = db.sql("update webhook set secreto = ? where id = ? and tenant_id = ?")
+                .params(cifrado.cifrar(secreto.getBytes(StandardCharsets.UTF_8)), id, s.tenant()).update();
+        if (n == 0) throw new NoSuchElementException("Webhook no encontrado");
+        auditoria.registrar(s, "WEBHOOK_SECRETO_ROTADO", Map.of("webhookId", id));
+        return Map.of("id", id, "secreto", secreto);
+    }
+
+    private static String nuevoSecreto() {
+        byte[] b = new byte[32];
+        RANDOM.nextBytes(b);
+        return "whsec_" + Base64.getUrlEncoder().withoutPadding().encodeToString(b);
     }
 
     @DeleteMapping("/{id}")
