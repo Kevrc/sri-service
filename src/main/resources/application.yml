@@ -12,6 +12,19 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  # SMTP para enviar RIDE y XML a los clientes. Sin SMTP_HOST el envío queda desactivado.
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USER:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${SMTP_AUTH:true}
+      mail.smtp.starttls.enable: true
+      mail.smtp.starttls.required: ${SMTP_STARTTLS:true}
+      mail.smtp.connectiontimeout: 10000
+      mail.smtp.timeout: 20000
+      mail.smtp.writetimeout: 20000
 
 app:
   sri-ambiente: ${SRI_AMBIENTE:1}
@@ -19,6 +32,12 @@ app:
   encryption-key: ${ENCRYPTION_KEY}
   superadmin-email: ${SUPERADMIN_EMAIL:}
   superadmin-password: ${SUPERADMIN_PASSWORD:}
+  correo:
+    smtp-host: ${SMTP_HOST:}
+    remitente: ${SMTP_FROM:}
+  alertas:
+    emails: ${ALERTAS_EMAIL:}
+  metrics-token: ${METRICS_TOKEN:}
 
 springdoc:
   api-docs:
@@ -36,10 +55,14 @@ server:
 
 # Health check en /status (DB y disco), sin exponer detalles internos.
 management:
+  # El SMTP no decide si la API está viva: sin esto /status quedaría DOWN cuando no hay correo configurado.
+  health:
+    mail:
+      enabled: false
   endpoints:
     web:
       base-path: /
       path-mapping:
         health: status
       exposure:
-        include: health
+        include: health, prometheus

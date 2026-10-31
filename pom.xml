@@ -58,6 +58,16 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
+    <!-- Envío del RIDE y XML por email (SMTP) -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-mail</artifactId>
+    </dependency>
+    <!-- Métricas en formato Prometheus (/prometheus, protegido con METRICS_TOKEN) -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
     <!-- Documentación interactiva (Swagger UI) en /api -->
     <dependency>
       <groupId>org.springdoc</groupId>

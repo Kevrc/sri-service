@@ -2,6 +2,7 @@ package ec.facturacion.sri.comprobantes;
 
 import ec.facturacion.sri.seguridad.Auditoria;
 import ec.facturacion.sri.seguridad.Sesion;
+import ec.facturacion.sri.correos.Correos;
 import ec.facturacion.sri.webhooks.Webhooks;
 import org.springframework.transaction.support.TransactionTemplate;
 import jakarta.validation.Valid;
@@ -48,11 +49,13 @@ public class ComprobanteController {
     private final Auditoria auditoria;
     private final Ride ride;
     private final Webhooks webhooks;
+    private final Correos correos;
     private final TransactionTemplate tx;
 
     public ComprobanteController(EmisionService emision, JdbcClient db, JsonMapper json, Simplificado simple, Auditoria auditoria,
-                                 Ride ride, Webhooks webhooks, TransactionTemplate tx) {
+                                 Ride ride, Webhooks webhooks, Correos correos, TransactionTemplate tx) {
         this.emision = emision;
+        this.correos = correos;
         this.webhooks = webhooks;
         this.tx = tx;
         this.ride = ride;
@@ -215,6 +218,24 @@ public class ComprobanteController {
         if (id == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "Solo se puede anular un comprobante AUTORIZADO");
         webhooks.despacharPronto();
         return porClave(s.tenant(), clave);
+    }
+
+    public record Envio(List<String> destinatarios) {}
+
+    /** Envía (o reenvía) el RIDE y el XML por email. Sin destinatarios usa el "Email" de infoAdicional. */
+    @PostMapping("/comprobantes/{clave}/email")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public Map<String, Object> enviarEmail(@AuthenticationPrincipal Jwt jwt, @PathVariable String clave,
+                                           @RequestBody(required = false) Envio req) {
+        Sesion s = Sesion.de(jwt);
+        long id = correos.encolarManual(s.tenant(), clave, req == null ? null : req.destinatarios());
+        auditoria.registrar(s, "EMAIL_ENCOLADO", Map.of("claveAcceso", clave, "correoId", id));
+        return Map.of("id", id, "estado", "PENDIENTE");
+    }
+
+    @GetMapping("/comprobantes/{clave}/emails")
+    public List<Map<String, Object>> emails(@AuthenticationPrincipal Jwt jwt, @PathVariable String clave) {
+        return correos.historial(Sesion.de(jwt).tenant(), clave);
     }
 
     /** Procesa ya mismo todos los comprobantes pendientes del tenant, sin esperar al worker. */
