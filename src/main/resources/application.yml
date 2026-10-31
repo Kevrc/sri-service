@@ -38,6 +38,10 @@ app:
   alertas:
     emails: ${ALERTAS_EMAIL:}
   metrics-token: ${METRICS_TOKEN:}
+  # Solo para pruebas locales: permite webhooks por http y hacia la red interna (localhost, 192.168.x...).
+  webhooks:
+    permitir-http: ${WEBHOOKS_PERMITIR_HTTP:false}
+    permitir-red-privada: ${WEBHOOKS_PERMITIR_RED_PRIVADA:false}
 
 springdoc:
   api-docs:

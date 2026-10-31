@@ -1,11 +1,16 @@
 package ec.facturacion.sri.seguridad;
 
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -55,7 +60,8 @@ public class AuthController {
 
     public record Login(@NotBlank @Email String email, @NotBlank String password) {}
     public record Tokens(String accessToken, String refreshToken, long expiraEnSegundos) {}
-    public record Refresh(@NotBlank String refreshToken) {}
+    /** refreshToken en el cuerpo, o vacío si viaja en la cookie (modo navegador). */
+    public record Refresh(String refreshToken) {}
     public record Registro(@NotBlank @Email String email, @Size(min = 12, max = 128) String password,
                            @Pattern(regexp = "SUPERADMIN|ADMIN|USER") String rol, Long tenantId) {}
     public record CambioClave(@NotBlank String actual, @NotBlank @Size(min = 12, max = 128) String nueva) {}
@@ -63,7 +69,7 @@ public class AuthController {
     record Usuario(long id, Long tenantId, String rol, String passwordHash, boolean activo) {}
 
     @PostMapping("/login")
-    public Tokens login(@Valid @RequestBody Login req) {
+    public Tokens login(@Valid @RequestBody Login req, HttpServletRequest http, HttpServletResponse res) {
         String email = req.email().toLowerCase();
         limite.verificar(email);
         Usuario u = db.sql("""
@@ -78,16 +84,17 @@ public class AuthController {
         }
         limite.exito(email);
         auditoria.registrar(u.id(), u.tenantId(), "LOGIN", Map.of());
-        return emitir(u, UUID.randomUUID());
+        return entregar(emitir(u, UUID.randomUUID()), "true".equalsIgnoreCase(http.getHeader(MODO_COOKIE)), res);
     }
 
     /** Rotación: cada refresh token sirve una sola vez. Si se reutiliza, se revoca toda la familia (posible robo). */
     @PostMapping("/refresh")
     @Transactional(noRollbackFor = ResponseStatusException.class) // la revocación debe persistir aunque se responda 401
-    public Tokens refresh(@Valid @RequestBody Refresh req) {
+    public Tokens refresh(@RequestBody(required = false) Refresh req, HttpServletRequest http, HttpServletResponse res) {
+        String token = tokenDe(req, http);
         record Fila(long id, UUID familia, Instant expiraEn, boolean usado, boolean revocado, long usuarioId) {}
         Fila f = db.sql("select id, familia, expira_en, usado, revocado, usuario_id from refresh_token where hash = ? for update")
-                .param(hash(req.refreshToken())).query(Fila.class).optional()
+                .param(hash(token)).query(Fila.class).optional()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Refresh token inválido"));
         if (f.usado() || f.revocado()) {
             db.sql("update refresh_token set revocado = true where familia = ?").param(f.familia()).update();
@@ -101,13 +108,17 @@ public class AuthController {
                         from usuario u left join tenant t on t.id = u.tenant_id where u.id = ?""")
                 .param(f.usuarioId()).query(Usuario.class).single();
         if (!u.activo()) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Usuario inactivo");
-        return emitir(u, f.familia());
+        // Si llegó por cookie, sigue en modo cookie aunque falte la cabecera.
+        boolean cookie = "true".equalsIgnoreCase(http.getHeader(MODO_COOKIE)) || req == null || req.refreshToken() == null;
+        return entregar(emitir(u, f.familia()), cookie, res);
     }
 
     @PostMapping("/logout")
-    public void logout(@Valid @RequestBody Refresh req) {
+    public void logout(@RequestBody(required = false) Refresh req, HttpServletRequest http, HttpServletResponse res) {
+        String token = tokenDe(req, http);
+        res.addHeader(HttpHeaders.SET_COOKIE, cookie("", Duration.ZERO));
         db.sql("update refresh_token set revocado = true where familia = (select familia from refresh_token where hash = ?)")
-                .param(hash(req.refreshToken())).update();
+                .param(hash(token)).update();
     }
 
     /** SUPERADMIN crea usuarios en cualquier tenant; ADMIN solo en el suyo y sin crear SUPERADMIN. */
@@ -140,11 +151,34 @@ public class AuthController {
     public void cambiarClave(@AuthenticationPrincipal Jwt token, @Valid @RequestBody CambioClave req) {
         Sesion s = Sesion.de(token);
         String actual = db.sql("select password_hash from usuario where id = ?").param(s.usuarioId()).query(String.class).single();
-        if (!pe.matches(req.actual(), actual)) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Clave actual incorrecta");
+        if (!pe.matches(req.actual(), actual)) throw new IllegalArgumentException("La clave actual es incorrecta"); // 400: un 401 haría creer al cliente que la sesión expiró
         db.sql("update usuario set password_hash = ? where id = ?").params(pe.encode(req.nueva()), s.usuarioId()).update();
         // Cierra todas las sesiones abiertas con la clave anterior.
         db.sql("update refresh_token set revocado = true where usuario_id = ?").param(s.usuarioId()).update();
         auditoria.registrar(s, "CLAVE_CAMBIADA", Map.of());
+    }
+
+    /**
+     * Modo navegador (cabecera X-Token-Cookie: true): el refresh token va en una cookie HttpOnly, Secure, SameSite=Strict
+     * y limitada a /auth, así el JavaScript del panel nunca lo ve. Sin la cabecera, viaja en el cuerpo como siempre.
+     */
+    static final String MODO_COOKIE = "X-Token-Cookie", COOKIE = "sri_refresh";
+
+    private Tokens entregar(Tokens t, boolean enCookie, HttpServletResponse res) {
+        if (!enCookie) return t;
+        res.addHeader(HttpHeaders.SET_COOKIE, cookie(t.refreshToken(), DURACION_REFRESH));
+        return new Tokens(t.accessToken(), null, t.expiraEnSegundos());
+    }
+
+    private static String cookie(String valor, Duration duracion) {
+        return ResponseCookie.from(COOKIE, valor).httpOnly(true).secure(true).sameSite("Strict").path("/auth").maxAge(duracion).build().toString();
+    }
+
+    private static String tokenDe(Refresh req, HttpServletRequest http) {
+        if (req != null && req.refreshToken() != null && !req.refreshToken().isBlank()) return req.refreshToken();
+        if (http.getCookies() != null)
+            for (Cookie c : http.getCookies()) if (c.getName().equals(COOKIE) && !c.getValue().isBlank()) return c.getValue();
+        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Falta el refresh token");
     }
 
     private Tokens emitir(Usuario u, UUID familia) {

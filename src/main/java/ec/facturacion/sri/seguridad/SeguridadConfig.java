@@ -62,7 +62,7 @@ public class SeguridadConfig {
         return http.csrf(c -> c.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(a -> a
-                        .requestMatchers("/auth/login", "/auth/refresh", "/status", "/error").permitAll()
+                        .requestMatchers("/auth/login", "/auth/refresh", "/auth/logout", "/status", "/error").permitAll()
                         // Swagger UI (se apaga en producción con SWAGGER_ENABLED=false)
                         .requestMatchers("/api", "/api/**", "/api-docs", "/api-docs/**", "/swagger-ui/**").permitAll()
                         .anyRequest().authenticated())
