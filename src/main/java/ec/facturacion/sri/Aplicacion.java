@@ -9,15 +9,19 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.cfg.JsonNodeFeature;
 
+import java.util.Map;
 import java.util.NoSuchElementException;
 
 @SpringBootApplication
@@ -46,11 +50,25 @@ public class Aplicacion {
                         new SecurityScheme().type(SecurityScheme.Type.HTTP).scheme("bearer").bearerFormat("JWT")));
     }
 
+    // Antes que el manejador de problemas de Spring, que respondería "Invalid request content." sin decir el campo.
     @RestControllerAdvice
+    @Order(Ordered.HIGHEST_PRECEDENCE)
     static class Errores {
         @ExceptionHandler(IllegalArgumentException.class)
         ProblemDetail invalido(IllegalArgumentException e) {
             return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+
+        /** Qué campo falló y por qué (por ejemplo "items[0].iva: no debe estar vacío"), en vez de "Invalid request content". */
+        @ExceptionHandler(MethodArgumentNotValidException.class)
+        ProblemDetail validacion(MethodArgumentNotValidException e) {
+            var errores = e.getBindingResult().getFieldErrors().stream()
+                    .map(f -> Map.of("campo", f.getField(), "mensaje", f.getDefaultMessage() == null ? "inválido" : f.getDefaultMessage()))
+                    .toList();
+            var p = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Datos inválidos: " + errores.stream()
+                    .map(x -> x.get("campo") + ": " + x.get("mensaje")).collect(java.util.stream.Collectors.joining("; ")));
+            p.setProperty("errores", errores);
+            return p;
         }
 
         // El mensaje de Jackson dice qué campo falló; el genérico "Failed to read request" no ayuda al cliente.
