@@ -1,0 +1,52 @@
+{
+  "ruc": "0999999999001",
+  "establecimiento": "001",
+  "puntoEmision": "001",
+  "tipo": "factura",
+  "version": "1.1.0",
+  "contenido": {
+    "infoFactura": {
+      "fechaEmision": "31/10/2026",
+      "dirEstablecimiento": "Av. Principal 123, Guayaquil",
+      "obligadoContabilidad": "SI",
+      "tipoIdentificacionComprador": "07",
+      "razonSocialComprador": "CONSUMIDOR FINAL",
+      "identificacionComprador": "9999999999999",
+      "totalSinImpuestos": 10.00,
+      "totalDescuento": 0.00,
+      "totalConImpuestos": {
+        "totalImpuesto": [
+          { "codigo": "2", "codigoPorcentaje": "4", "baseImponible": 10.00, "valor": 1.50 }
+        ]
+      },
+      "propina": 0.00,
+      "importeTotal": 11.50,
+      "moneda": "DOLAR",
+      "pagos": {
+        "pago": [ { "formaPago": "01", "total": 11.50 } ]
+      }
+    },
+    "detalles": {
+      "detalle": [
+        {
+          "codigoPrincipal": "P001",
+          "descripcion": "Producto de prueba",
+          "cantidad": 1.00,
+          "precioUnitario": 10.00,
+          "descuento": 0.00,
+          "precioTotalSinImpuesto": 10.00,
+          "impuestos": {
+            "impuesto": [
+              { "codigo": "2", "codigoPorcentaje": "4", "tarifa": 15, "baseImponible": 10.00, "valor": 1.50 }
+            ]
+          }
+        }
+      ]
+    },
+    "infoAdicional": {
+      "campoAdicional": [
+        { "@nombre": "Email", "#text": "cliente@example.com" }
+      ]
+    }
+  }
+}
