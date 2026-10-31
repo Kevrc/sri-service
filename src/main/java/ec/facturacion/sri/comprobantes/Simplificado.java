@@ -68,14 +68,14 @@ public class Simplificado {
 
     public record Factura(@Pattern(regexp = "\\d{13}") String ruc, @Pattern(regexp = "\\d{3}") String establecimiento,
                           @Pattern(regexp = "\\d{3}") String puntoEmision, LocalDate fechaEmision,
-                          @Valid @NotNull Persona comprador, @Valid @NotEmpty List<Item> items,
-                          @Valid @NotEmpty List<Pago> pagos, @PositiveOrZero BigDecimal propina,
+                          @Valid @NotNull Persona comprador, @NotEmpty List<@Valid Item> items,
+                          @NotEmpty List<@Valid Pago> pagos, @PositiveOrZero BigDecimal propina,
                           @Pattern(regexp = "\\d{3}-\\d{3}-\\d{9}") String guiaRemision, Map<String, String> infoAdicional) {}
 
     public record NotaCredito(@Pattern(regexp = "\\d{13}") String ruc, @Pattern(regexp = "\\d{3}") String establecimiento,
                               @Pattern(regexp = "\\d{3}") String puntoEmision, LocalDate fechaEmision,
                               @Valid @NotNull Persona comprador, @Valid @NotNull Documento docModificado,
-                              @NotBlank @Size(max = 300) String motivo, @Valid @NotEmpty List<Item> items,
+                              @NotBlank @Size(max = 300) String motivo, @NotEmpty List<@Valid Item> items,
                               Map<String, String> infoAdicional) {}
 
     public record Motivo(@NotBlank @Size(max = 300) String razon, @NotNull @Positive BigDecimal valor) {}
@@ -83,7 +83,7 @@ public class Simplificado {
     public record NotaDebito(@Pattern(regexp = "\\d{13}") String ruc, @Pattern(regexp = "\\d{3}") String establecimiento,
                              @Pattern(regexp = "\\d{3}") String puntoEmision, LocalDate fechaEmision,
                              @Valid @NotNull Persona comprador, @Valid @NotNull Documento docModificado,
-                             @Valid @NotEmpty List<Motivo> motivos, @NotBlank String iva, @Valid List<Pago> pagos,
+                             @NotEmpty List<@Valid Motivo> motivos, @NotBlank String iva, List<@Valid Pago> pagos,
                              Map<String, String> infoAdicional) {}
 
     public record SujetoRetenido(@NotBlank @Pattern(regexp = "04|05|06|08") String tipoIdentificacion,
@@ -100,14 +100,14 @@ public class Simplificado {
                               @NotBlank @Pattern(regexp = "\\d{2}") String codDoc,
                               @NotBlank @Pattern(regexp = "\\d{3}-?\\d{3}-?\\d{9}") String numero,
                               @NotNull LocalDate fechaEmision, String numAutorizacion,
-                              @Valid @NotEmpty List<ImpuestoSustento> impuestos, @Valid @NotEmpty List<Retencion> retenciones,
-                              @Valid @NotEmpty List<Pago> pagos) {}
+                              @NotEmpty List<@Valid ImpuestoSustento> impuestos, @NotEmpty List<@Valid Retencion> retenciones,
+                              @NotEmpty List<@Valid Pago> pagos) {}
 
     public record ComprobanteRetencion(@Pattern(regexp = "\\d{13}") String ruc, @Pattern(regexp = "\\d{3}") String establecimiento,
                                        @Pattern(regexp = "\\d{3}") String puntoEmision, LocalDate fechaEmision,
                                        @Valid @NotNull SujetoRetenido sujetoRetenido,
                                        @Pattern(regexp = "\\d{2}/\\d{4}") String periodoFiscal,
-                                       @Valid @NotEmpty List<DocSustento> docsSustento, Map<String, String> infoAdicional) {}
+                                       @NotEmpty List<@Valid DocSustento> docsSustento, Map<String, String> infoAdicional) {}
 
     public record ItemGuia(@Size(max = 25) String codigo, @NotBlank @Size(max = 300) String descripcion,
                            @NotNull @Positive BigDecimal cantidad) {}
@@ -115,7 +115,7 @@ public class Simplificado {
     public record Destinatario(@NotBlank @Size(max = 20) String identificacion, @NotBlank String razonSocial,
                                @NotBlank String direccion, @NotBlank @Size(max = 300) String motivoTraslado,
                                @Pattern(regexp = "\\d{3}") String codEstabDestino, @Size(max = 300) String ruta,
-                               @Valid Documento docSustento, @Valid @NotEmpty List<ItemGuia> items) {}
+                               @Valid Documento docSustento, @NotEmpty List<@Valid ItemGuia> items) {}
 
     public record Transportista(@NotBlank @Pattern(regexp = "04|05|06|07|08") String tipoIdentificacion,
                                 @NotBlank @Size(max = 20) String identificacion, @NotBlank String razonSocial) {}
@@ -125,12 +125,12 @@ public class Simplificado {
                                @Valid @NotNull Transportista transportista, @NotBlank @Size(max = 20) String placa,
                                @NotBlank @Size(max = 300) String dirPartida,
                                @NotNull LocalDate fechaInicioTransporte, @NotNull LocalDate fechaFinTransporte,
-                               @Valid @NotEmpty List<Destinatario> destinatarios, Map<String, String> infoAdicional) {}
+                               @NotEmpty List<@Valid Destinatario> destinatarios, Map<String, String> infoAdicional) {}
 
     public record LiquidacionCompra(@Pattern(regexp = "\\d{13}") String ruc, @Pattern(regexp = "\\d{3}") String establecimiento,
                                     @Pattern(regexp = "\\d{3}") String puntoEmision, LocalDate fechaEmision,
-                                    @Valid @NotNull Persona proveedor, @Valid @NotEmpty List<Item> items,
-                                    @Valid @NotEmpty List<Pago> pagos, Map<String, String> infoAdicional) {}
+                                    @Valid @NotNull Persona proveedor, @NotEmpty List<@Valid Item> items,
+                                    @NotEmpty List<@Valid Pago> pagos, Map<String, String> infoAdicional) {}
 
     // ---------- Traducción ----------
 
