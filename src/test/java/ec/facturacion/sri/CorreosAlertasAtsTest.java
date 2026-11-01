@@ -92,7 +92,10 @@ class CorreosAlertasAtsTest extends IntegracionBase {
         assertEquals(List.of(clave + ".pdf", clave + ".xml"), adjuntos(m));
         for (int i = 0; i < 50 && !llamar("GET", "/sri/comprobantes/" + clave + "/emails", emp.user(), null).body().toString().contains("ENVIADO"); i++)
             Thread.sleep(100);
-        assertEquals("ENVIADO", llamar("GET", "/sri/comprobantes/" + clave + "/emails", emp.user(), null).body().get(0).get("estado").asString());
+        var historial = llamar("GET", "/sri/comprobantes/" + clave + "/emails", emp.user(), null).body().get(0);
+        assertEquals("ENVIADO", historial.get("estado").asString());
+        assertEquals("juan@example.com", historial.get("destinatarios").get(0).asString(), "destinatarios es un arreglo");
+        assertTrue(llamar("GET", "/sri/capacidades", emp.user(), null).body().get("email").asBoolean());
 
         // Reenvío manual a otro correo; validación de direcciones
         assertEquals(202, llamar("POST", "/sri/comprobantes/" + clave + "/email", emp.user(), Map.of("destinatarios", List.of("otro@example.com"))).status());

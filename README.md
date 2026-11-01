@@ -81,7 +81,8 @@ Documentación interactiva (Swagger): `http://localhost:8080/api`. Haz login en 
 | GET | `/sri/comprobantes/{clave}/xml` | ADMIN, USER | XML autorizado (o firmado si aún no se autoriza) |
 | GET | `/sri/comprobantes/{clave}/ride` | ADMIN, USER | RIDE en PDF con código de barras y QR (autorizados; los anulados con marca de agua) |
 | POST | `/sri/comprobantes/{clave}/email` | ADMIN, USER | Envía o reenvía RIDE + XML (`{"destinatarios": [...]}` opcional) |
-| GET | `/sri/comprobantes/{clave}/emails` | ADMIN, USER | Historial de envíos por email |
+| GET | `/sri/comprobantes/{clave}/emails` | ADMIN, USER | Historial de envíos por email (`destinatarios` es un arreglo) |
+| GET | `/sri/capacidades` | ADMIN, USER | Qué está habilitado: `{"email": true, "ambiente": "PRUEBAS"}`, para ocultar botones que no aplican |
 | GET | `/sri/verificar/{clave}` | ADMIN, USER | Consulta al SRI ya mismo |
 | POST | `/sri/comprobantes/{clave}/reintentar` | ADMIN, USER | Reintenta uno en `ERROR` |
 | PATCH | `/sri/comprobantes/{clave}/anular` | ADMIN | Marca ANULADO un AUTORIZADO (`{"motivo": ...}`). **También hay que anularlo en SRI en línea** |
@@ -168,7 +169,8 @@ X-SRI-Timestamp: 1793480400
 X-SRI-Firma: sha256=<hex de HMAC-SHA256(secreto, timestamp + "." + cuerpo)>
 
 {"evento":"comprobante.autorizado","claveAcceso":"...","estado":"AUTORIZADO","numeroAutorizacion":"...",
- "idempotencyKey":"venta-42","subtotal":100.00,"iva":15.00,"total":115.00, ...}
+ "idempotencyKey":"venta-42","subtotal":100.00,"iva":15.00,"total":115.00,
+ "establecimiento":"001","puntoEmision":"001","fechaEmision":"2026-10-31", ...}
 ```
 
 - Responde 2xx para confirmar. Si no, se reintenta con esperas crecientes (hasta 10 veces, ~8 horas) y luego queda `FALLIDO` (reenviable).

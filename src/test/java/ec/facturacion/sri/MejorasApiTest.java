@@ -57,6 +57,13 @@ class MejorasApiTest extends IntegracionBase {
         JsonNode p = json.readTree(payload);
         assertEquals("venta-42", p.get("idempotencyKey").asString());
         assertEquals(115.0, p.get("total").asDouble());
+        assertEquals("002", p.get("establecimiento").asString());
+        assertEquals("003", p.get("puntoEmision").asString());
+        assertTrue(p.get("fechaEmision").asString().matches("\\d{4}-\\d{2}-\\d{2}"), p.toString());
+
+        var cap = llamar("GET", "/sri/capacidades", emp.user(), null).body();
+        assertFalse(cap.get("email").asBoolean(), "sin SMTP_HOST el email no está disponible");
+        assertEquals("PRUEBAS", cap.get("ambiente").asString());
     }
 
     @Test
