@@ -189,6 +189,10 @@ public class Correos {
                         select co.id, co.destinatarios, co.estado, co.intentos, co.error, co.creado_en as "creadoEn", co.enviado_en as "enviadoEn"
                         from correo co join comprobante c on c.id = co.comprobante_id
                         where c.tenant_id = ? and c.clave_acceso = ? order by co.id desc""")
-                .params(tenant, clave).query().listOfRows();
+                .params(tenant, clave).query().listOfRows().stream().map(r -> {
+                    var m = new java.util.LinkedHashMap<>(r);
+                    m.put("destinatarios", List.of(((String) r.get("destinatarios")).split(",")));
+                    return (Map<String, Object>) m;
+                }).toList();
     }
 }
