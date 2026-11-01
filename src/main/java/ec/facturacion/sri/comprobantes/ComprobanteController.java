@@ -53,6 +53,8 @@ public class ComprobanteController {
     private final Webhooks webhooks;
     private final Correos correos;
     private final TransactionTemplate tx;
+    @org.springframework.beans.factory.annotation.Value("${app.sri-ambiente}")
+    private String ambiente;
 
     public ComprobanteController(EmisionService emision, JdbcClient db, JsonMapper json, Simplificado simple, Auditoria auditoria,
                                  Ride ride, Webhooks webhooks, Correos correos, TransactionTemplate tx) {
@@ -233,6 +235,12 @@ public class ComprobanteController {
         long id = correos.encolarManual(s.tenant(), clave, req == null ? null : req.destinatarios());
         auditoria.registrar(s, "EMAIL_ENCOLADO", Map.of("claveAcceso", clave, "correoId", id));
         return Map.of("id", id, "estado", "PENDIENTE");
+    }
+
+    /** Qué está habilitado en este despliegue, para que los clientes oculten lo que no está disponible. */
+    @GetMapping("/capacidades")
+    public Map<String, Object> capacidades() {
+        return Map.of("email", correos.habilitado(), "ambiente", ambiente.equals("2") ? "PRODUCCION" : "PRUEBAS");
     }
 
     @GetMapping("/comprobantes/{clave}/emails")
