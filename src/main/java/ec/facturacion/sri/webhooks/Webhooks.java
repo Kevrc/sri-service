@@ -64,8 +64,9 @@ public class Webhooks {
                                    'estado', c.estado, 'codDoc', c.cod_doc, 'secuencial', c.secuencial, 'ruc', e.ruc,
                                    'numeroAutorizacion', c.numero_autorizacion, 'fechaAutorizacion', c.fecha_autorizacion,
                                    'mensajes', c.mensajes, 'idempotencyKey', c.idempotency_key,
-                                   'subtotal', c.subtotal, 'iva', c.iva, 'total', c.importe_total, 'fecha', now())
-                        from comprobante c join emisor e on e.id = c.emisor_id
+                                   'subtotal', c.subtotal, 'iva', c.iva, 'total', c.importe_total,
+                                   'establecimiento', p.estab, 'puntoEmision', p.pto_emi, 'fechaEmision', c.fecha_emision, 'fecha', now())
+                        from comprobante c join emisor e on e.id = c.emisor_id join punto_emision p on p.id = c.punto_emision_id
                         join webhook w on w.tenant_id = c.tenant_id -- también pausados: se entregan al reanudarlos
                         where c.id = ? and ('comprobante.' || lower(c.estado)) = any (w.eventos)""")
                 .param(comprobanteId).update();
